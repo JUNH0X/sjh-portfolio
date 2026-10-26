@@ -1,0 +1,550 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+const config = window.APP_CONFIG || {};
+const isConfigured = Boolean(
+  config.supabaseUrl &&
+  config.supabasePublishableKey &&
+  !config.supabaseUrl.includes('YOUR_PROJECT_ID') &&
+  !config.supabasePublishableKey.includes('YOUR_SUPABASE')
+);
+const supabase = isConfigured ? createClient(config.supabaseUrl, config.supabasePublishableKey, {
+  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+}) : null;
+
+const state = {
+  page: 'home',
+  profile: {
+    id: 1,
+    display_name: '신준호',
+    description: '오픈소스 AI 모델을 연구하고 개조하며, 배운 내용을 기록하는 학생 개발자입니다.',
+    avatar_url: null
+  },
+  portfolios: [],
+  research: [],
+  view: { portfolio: 'list', research: 'list' },
+  modalKind: null,
+  lastFocus: null,
+  realtimeChannel: null
+};
+
+const $ = (selector, root = document) => root.querySelector(selector);
+const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+const modalBackdrop = $('#modal-backdrop');
+const modalTitle = $('#modal-title');
+const modalKicker = $('#modal-kicker');
+const modalBody = $('#modal-body');
+const drawer = $('#navigation-drawer');
+const drawerBackdrop = $('#drawer-backdrop');
+const liveStatus = $('#live-status');
+const statusText = $('#status-text');
+
+function escapeHtml(value = '') {
+  return String(value).replace(/[&<>"']/g, char => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[char]);
+}
+
+function safeWebUrl(value) {
+  try {
+    const url = new URL(String(value));
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch {
+    return '';
+  }
+}
+
+function prettyDate(value) {
+  if (!value) return '날짜 미정';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '날짜 미정';
+  return new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }).format(date);
+}
+
+function shortDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('ko-KR', { year: '2-digit', month: '2-digit', day: '2-digit' }).format(date).replace(/\. /g, '.').replace(/\.$/, '');
+}
+
+function setStatus(kind, text) {
+  liveStatus.classList.remove('error', 'loading');
+  if (kind) liveStatus.classList.add(kind);
+  statusText.textContent = text;
+}
+
+function toast(message, type = 'success') {
+  const node = document.createElement('div');
+  node.className = `toast${type === 'error' ? ' error' : ''}`;
+  node.textContent = message;
+  $('#toast-region').append(node);
+  window.setTimeout(() => node.remove(), 4200);
+}
+
+function setPage(page) {
+  if (!['home', 'portfolio', 'research'].includes(page)) return;
+  state.page = page;
+  $$('.page-view').forEach(section => {
+    const active = section.id === `${page}-view`;
+    section.hidden = !active;
+    section.classList.toggle('active', active);
+  });
+  $$('.nav-item[data-page]').forEach(button => button.classList.toggle('active', button.dataset.page === page));
+  closeDrawer();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function openDrawer() {
+  drawer.classList.add('open');
+  drawer.setAttribute('aria-hidden', 'false');
+  drawerBackdrop.hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#menu-close').focus();
+}
+
+function closeDrawer() {
+  drawer.classList.remove('open');
+  drawer.setAttribute('aria-hidden', 'true');
+  drawerBackdrop.hidden = true;
+  document.body.style.overflow = modalBackdrop.hidden ? '' : 'hidden';
+}
+
+function openModal({ title, kicker = 'ADMIN ACCESS', content, kind = null }) {
+  state.lastFocus = document.activeElement;
+  state.modalKind = kind;
+  modalTitle.textContent = title;
+  modalKicker.textContent = kicker;
+  modalBody.innerHTML = content;
+  modalBackdrop.hidden = false;
+  document.body.style.overflow = 'hidden';
+  const first = $('input, textarea, button, select', modalBody);
+  if (first) window.setTimeout(() => first.focus(), 30);
+}
+
+function closeModal() {
+  modalBackdrop.hidden = true;
+  modalBody.innerHTML = '';
+  state.modalKind = null;
+  document.body.style.overflow = drawer.classList.contains('open') ? 'hidden' : '';
+  if (state.lastFocus && typeof state.lastFocus.focus === 'function') state.lastFocus.focus();
+}
+
+function openLogin() {
+  openModal({
+    title: '관리자 전용',
+    kicker: 'PRIVATE AREA / AUTHENTICATION',
+    kind: 'login',
+    content: `
+      <p class="modal-description">관리자 기능을 사용하려면 비밀번호를 입력해주세요.</p>
+      <form id="login-form" novalidate>
+        <div class="field"><label for="admin-password">비밀번호<span class="required">*</span></label><input id="admin-password" name="password" type="password" autocomplete="current-password" required placeholder="비밀번호를 입력해주세요."></div>
+        <p class="form-error" id="form-error" role="alert"></p>
+        <button class="primary-button" type="submit">인증하고 들어가기 <span aria-hidden="true">→</span></button>
+      </form>
+      <p class="modal-bottom-note">관리자 비밀번호는 브라우저 코드에 저장하지 않고 서버에서 확인합니다.</p>`
+  });
+  $('#login-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = $('button[type="submit"]', event.currentTarget);
+    const password = $('#admin-password').value;
+    const errorBox = $('#form-error');
+    if (!password) return showFormError(errorBox, '비밀번호를 입력해주세요.');
+    button.disabled = true;
+    button.textContent = '인증 중…';
+    try {
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ password })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || '비밀번호가 올바르지 않습니다.');
+      }
+      closeModal();
+      openAdminPanel();
+    } catch (error) {
+      showFormError(errorBox, error.message || '인증 요청에 실패했습니다. 서버 설정을 확인해주세요.');
+    } finally {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.innerHTML = '인증하고 들어가기 <span aria-hidden="true">→</span>';
+      }
+    }
+  });
+}
+
+function showFormError(node, message) {
+  node.textContent = message;
+  node.classList.add('visible');
+}
+
+function openAdminPanel() {
+  openModal({
+    title: '관리자 도구',
+    kicker: 'ADMIN WORKSPACE',
+    kind: 'dashboard',
+    content: `
+      <p class="modal-description">사이트에 공개할 내용을 선택하세요. 저장하면 방문자 화면에도 바로 반영됩니다.</p>
+      ${!isConfigured ? '<div class="setup-notice">아직 Supabase 연결 설정이 완료되지 않았습니다. 먼저 <strong>config.js</strong>와 데이터베이스 설정을 완료해야 저장 기능을 사용할 수 있습니다.</div>' : ''}
+      <div class="admin-action-list">
+        <button class="admin-action" data-admin-action="profile"><span class="admin-action-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span><span class="admin-action-copy"><strong>프로필 사진·설명 변경</strong><small>사진 미리보기 및 소개 문구 수정</small></span><span class="admin-action-arrow">→</span></button>
+        <button class="admin-action" data-admin-action="portfolio"><span class="admin-action-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="15" rx="2"/><path d="M8 5V3h8v2M3 10h18M10 13h4"/></svg></span><span class="admin-action-copy"><strong>포트폴리오 올리기</strong><small>프로젝트 제목, 설명, 링크 등록</small></span><span class="admin-action-arrow">→</span></button>
+        <button class="admin-action" data-admin-action="research"><span class="admin-action-icon"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></svg></span><span class="admin-action-copy"><strong>연구 기록 쓰기</strong><small>실험과 학습 내용을 기록</small></span><span class="admin-action-arrow">→</span></button>
+      </div>
+      <p class="modal-bottom-note">인증은 일정 시간이 지나면 만료됩니다. 관리자 메뉴에 다시 들어갈 때 비밀번호를 입력하면 됩니다.</p>`
+  });
+  $$('[data-admin-action]', modalBody).forEach(button => button.addEventListener('click', () => {
+    const action = button.dataset.adminAction;
+    if (action === 'profile') openProfileForm();
+    if (action === 'portfolio') openPortfolioForm();
+    if (action === 'research') openResearchForm();
+  }));
+}
+
+function openProfileForm() {
+  openModal({
+    title: '프로필 사진·설명 변경',
+    kicker: 'EDIT PROFILE',
+    kind: 'profile',
+    content: `
+      <p class="modal-description">이름은 변경되지 않습니다. 사진과 설명 중 필요한 항목만 입력하세요.</p>
+      <form id="profile-form" novalidate>
+        <div class="field"><label for="profile-photo">프로필 사진</label><input id="profile-photo" name="photo" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><p class="field-hint">PNG, JPG, WebP, GIF / 파일 크기 최대 1MB</p>
+          <div class="preview-box"><div class="preview-avatar" id="photo-preview"><span>SJ</span></div><span class="preview-text" id="preview-caption">사진을 선택하면 미리보기가 표시됩니다.</span></div>
+        </div>
+        <div class="field"><label for="profile-description-input">소개 설명</label><textarea id="profile-description-input" name="description" maxlength="1000" placeholder="비워두면 기존 설명을 유지합니다."></textarea><p class="field-hint">최대 1,000자 · 입력하지 않으면 기존 설명 유지</p></div>
+        <p class="form-error" id="form-error" role="alert"></p>
+        <button class="primary-button" type="submit">변경사항 저장 <span aria-hidden="true">→</span></button>
+      </form>`
+  });
+  const fileInput = $('#profile-photo');
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    const preview = $('#photo-preview');
+    const caption = $('#preview-caption');
+    if (!file) {
+      preview.innerHTML = '<span>SJ</span>';
+      caption.textContent = '사진을 선택하면 미리보기가 표시됩니다.';
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      fileInput.value = '';
+      preview.innerHTML = '<span>SJ</span>';
+      caption.textContent = '파일 크기는 1MB 이하여야 합니다.';
+      showFormError($('#form-error'), '프로필 사진은 1MB 이하만 업로드할 수 있습니다.');
+      return;
+    }
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+      fileInput.value = '';
+      showFormError($('#form-error'), 'PNG, JPG, WebP, GIF 이미지 파일을 선택해주세요.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => { preview.innerHTML = `<img alt="프로필 사진 미리보기" src="${reader.result}">`; };
+    reader.readAsDataURL(file);
+    caption.textContent = `${file.name} · ${(file.size / 1024).toFixed(0)}KB`;
+    $('#form-error').classList.remove('visible');
+  });
+  $('#profile-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const file = fileInput.files?.[0];
+    const description = $('#profile-description-input').value.trim();
+    const errorBox = $('#form-error');
+    if (!file && !description) return showFormError(errorBox, '사진을 선택하거나 변경할 설명을 입력해주세요.');
+    if (file && file.size > 1024 * 1024) return showFormError(errorBox, '프로필 사진은 1MB 이하여야 합니다.');
+    const form = new FormData();
+    form.set('action', 'profile');
+    if (file) form.set('photo', file, file.name);
+    if (description) form.set('description', description);
+    await submitAdminForm(event.currentTarget, form, errorBox, '프로필이 변경되었습니다.', '프로필 저장에 실패했습니다.');
+  });
+}
+
+function openPortfolioForm() {
+  openModal({
+    title: '포트폴리오 올리기',
+    kicker: 'PUBLISH PROJECT',
+    kind: 'portfolio',
+    content: `
+      <p class="modal-description">제목, 설명, 링크를 모두 입력해야 등록할 수 있습니다.</p>
+      <form id="portfolio-form" novalidate>
+        <div class="field"><label for="portfolio-title-input">제목<span class="required">*</span></label><input id="portfolio-title-input" name="title" maxlength="120" required placeholder="프로젝트 이름"></div>
+        <div class="field"><label for="portfolio-description-input">설명<span class="required">*</span></label><textarea id="portfolio-description-input" name="description" maxlength="5000" required placeholder="무엇을 만들었고, 어떤 기술을 사용했는지 적어주세요."></textarea><p class="field-hint">최대 5,000자</p></div>
+        <div class="field"><label for="portfolio-link-input">링크<span class="required">*</span></label><input id="portfolio-link-input" name="link" type="url" maxlength="500" required placeholder="https://..." inputmode="url"></div>
+        <p class="form-error" id="form-error" role="alert"></p>
+        <button class="primary-button" type="submit">포트폴리오 올리기 <span aria-hidden="true">→</span></button>
+      </form>`
+  });
+  $('#portfolio-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const formNode = event.currentTarget;
+    const errorBox = $('#form-error');
+    const title = $('#portfolio-title-input').value.trim();
+    const description = $('#portfolio-description-input').value.trim();
+    const link = $('#portfolio-link-input').value.trim();
+    if (!title || !description || !link) return showFormError(errorBox, '제목, 설명, 링크를 모두 입력해주세요.');
+    if (!safeWebUrl(link)) return showFormError(errorBox, '링크는 http:// 또는 https:// 주소로 입력해주세요.');
+    const form = new FormData();
+    form.set('action', 'portfolio'); form.set('title', title); form.set('description', description); form.set('link', link);
+    await submitAdminForm(formNode, form, errorBox, '포트폴리오가 등록되었습니다.', '포트폴리오 등록에 실패했습니다.');
+  });
+}
+
+function openResearchForm() {
+  openModal({
+    title: '연구 기록 쓰기',
+    kicker: 'WRITE LAB NOTE',
+    kind: 'research',
+    content: `
+      <p class="modal-description">제목과 내용은 필수입니다. 참고 링크는 필요할 때만 입력하세요.</p>
+      <form id="research-form" novalidate>
+        <div class="field"><label for="research-title-input">제목<span class="required">*</span></label><input id="research-title-input" name="title" maxlength="160" required placeholder="연구 주제 또는 실험 이름"></div>
+        <div class="field"><label for="research-content-input">내용<span class="required">*</span></label><textarea id="research-content-input" name="content" maxlength="15000" required placeholder="목표, 과정, 결과, 배운 점 등을 기록해주세요." style="min-height:150px"></textarea><p class="field-hint">최대 15,000자</p></div>
+        <div class="field"><label for="research-link-input">링크 <span class="field-hint" style="display:inline">(선택)</span></label><input id="research-link-input" name="link" type="url" maxlength="500" placeholder="https://..." inputmode="url"></div>
+        <p class="form-error" id="form-error" role="alert"></p>
+        <button class="primary-button" type="submit">연구 기록 쓰기 <span aria-hidden="true">→</span></button>
+      </form>`
+  });
+  $('#research-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const formNode = event.currentTarget;
+    const errorBox = $('#form-error');
+    const title = $('#research-title-input').value.trim();
+    const content = $('#research-content-input').value.trim();
+    const link = $('#research-link-input').value.trim();
+    if (!title || !content) return showFormError(errorBox, '제목과 내용을 모두 입력해주세요.');
+    if (link && !safeWebUrl(link)) return showFormError(errorBox, '링크는 http:// 또는 https:// 주소로 입력해주세요.');
+    const form = new FormData();
+    form.set('action', 'research'); form.set('title', title); form.set('content', content); if (link) form.set('link', link);
+    await submitAdminForm(formNode, form, errorBox, '연구 기록이 등록되었습니다.', '연구 기록 등록에 실패했습니다.');
+  });
+}
+
+async function submitAdminForm(formNode, formData, errorBox, successMessage, genericError) {
+  // The owner is asked to re-authenticate after pressing the final save/publish button.
+  openModal({
+    title: '비밀번호 재인증',
+    kicker: 'CONFIRM ADMIN ACTION',
+    kind: 'reauth',
+    content: `
+      <p class="modal-description">저장하기 전에 오너 비밀번호를 한 번 더 입력해주세요.</p>
+      <form id="reauth-form" novalidate>
+        <div class="field"><label for="reauth-password">오너 비밀번호<span class="required">*</span></label><input id="reauth-password" name="password" type="password" autocomplete="current-password" required placeholder="비밀번호를 다시 입력해주세요."></div>
+        <p class="form-error" id="form-error" role="alert"></p>
+        <button class="primary-button" type="submit">인증하고 저장하기 <span aria-hidden="true">→</span></button>
+      </form>
+      <p class="modal-bottom-note">입력한 비밀번호는 페이지 코드에 저장되지 않으며 서버에서 확인합니다.</p>`
+  });
+  const reauthForm = $('#reauth-form');
+  reauthForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = $('button[type="submit"]', reauthForm);
+    const password = $('#reauth-password').value;
+    const error = $('#form-error');
+    if (!password) return showFormError(error, '비밀번호를 입력해주세요.');
+    button.disabled = true;
+    button.textContent = '인증 중…';
+    error.classList.remove('visible');
+    try {
+      const authResponse = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ password })
+      });
+      const authResult = await authResponse.json().catch(() => ({}));
+      if (!authResponse.ok || !authResult.ok) {
+        throw new Error(authResult.error || '비밀번호가 올바르지 않습니다.');
+      }
+      button.textContent = '저장 중…';
+      const response = await fetch('/api/admin', { method: 'POST', body: formData, credentials: 'same-origin' });
+      const result = await response.json().catch(() => ({}));
+      if (response.status === 401) throw new Error('인증이 만료되었습니다. 다시 비밀번호를 입력해주세요.');
+      if (!response.ok || !result.ok) throw new Error(result.error || genericError);
+      closeModal();
+      toast(successMessage);
+      if (isConfigured) await loadData();
+      if (state.page === 'home') renderHome();
+    } catch (error) {
+      showFormError($('#form-error'), error.message || genericError);
+    } finally {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.innerHTML = '인증하고 저장하기 <span aria-hidden="true">→</span>';
+      }
+    }
+  });
+}
+
+function updateProfileCard() {
+  $('#profile-name').textContent = '신준호';
+  $('#profile-description').textContent = state.profile.description || '';
+  const img = $('#profile-avatar');
+  const fallback = $('#avatar-fallback');
+  if (state.profile.avatar_url && safeWebUrl(state.profile.avatar_url)) {
+    img.src = state.profile.avatar_url;
+    img.hidden = false;
+    fallback.hidden = true;
+    img.onerror = () => { img.hidden = true; fallback.hidden = false; };
+  } else {
+    img.hidden = true;
+    fallback.hidden = false;
+  }
+}
+
+function renderHome() {
+  updateProfileCard();
+  const portfolios = [...state.portfolios].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 3);
+  const research = [...state.research].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 3);
+  renderHomeRecords($('#home-portfolios'), portfolios, 'portfolio');
+  renderHomeRecords($('#home-research'), research, 'research');
+  const rawHfUrl = config.huggingFaceUrl || '';
+  const rawGithubUrl = config.githubUrl || '';
+  const hfUrl = (!rawHfUrl.includes('YOUR_USERNAME') && safeWebUrl(rawHfUrl)) || 'https://huggingface.co/';
+  const githubUrl = (!rawGithubUrl.includes('YOUR_USERNAME') && safeWebUrl(rawGithubUrl)) || 'https://github.com/';
+  $('#huggingface-link').href = hfUrl;
+  $('#github-link').href = githubUrl;
+}
+
+function renderHomeRecords(container, items, type) {
+  if (!items.length) {
+    container.innerHTML = type === 'portfolio'
+      ? '<div class="empty-state compact"><span class="empty-icon">↗</span><p>아직 등록된 포트폴리오가 없습니다.</p></div>'
+      : '<div class="empty-state compact"><span class="empty-icon">✳</span><p>첫 번째 연구 기록을 기다리고 있어요.</p></div>';
+    return;
+  }
+  container.innerHTML = items.map(item => {
+    const title = escapeHtml(item.title || '제목 없음');
+    const excerpt = escapeHtml((item.description || item.content || '').slice(0, 150));
+    return `<button class="home-record-item" data-open-record="${escapeHtml(item.id)}" data-record-type="${type}"><span class="home-record-text"><span class="home-record-title">${title}</span><span class="home-record-excerpt">${excerpt}</span></span><span class="home-record-date">${escapeHtml(shortDate(item.created_at))}</span></button>`;
+  }).join('');
+  $$('[data-open-record]', container).forEach(button => button.addEventListener('click', () => {
+    setPage(type);
+    window.setTimeout(() => {
+      const target = $(`[data-record-id="${CSS.escape(button.dataset.openRecord)}"]`, $(`#${type}-list`));
+      if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); target.classList.add('expanded'); }
+    }, 80);
+  }));
+}
+
+function renderArchive(type) {
+  const items = type === 'portfolio' ? state.portfolios : state.research;
+  const container = $(`#${type}-list`);
+  const countEl = $(`#${type}-count`);
+  const summaryEl = $(`#${type}-summary`);
+  const sortValue = $(`#${type}-sort`).value;
+  const viewMode = state.view[type];
+  const sorted = [...items].sort((a, b) => {
+    const aDate = new Date(a.created_at || 0).getTime();
+    const bDate = new Date(b.created_at || 0).getTime();
+    return sortValue === 'oldest' ? aDate - bDate : bDate - aDate;
+  });
+  countEl.textContent = String(items.length).padStart(2, '0');
+  summaryEl.textContent = `전체 ${items.length}개 ${type === 'portfolio' ? '프로젝트' : '연구 기록'}`;
+  container.classList.toggle('detail-view', viewMode === 'detail');
+  container.classList.toggle('list-view', viewMode === 'list');
+  $$(`#${type}-view [data-view]`).forEach(button => button.classList.toggle('active', button.dataset.view === viewMode));
+  if (!sorted.length) {
+    container.classList.add('empty-list');
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">${type === 'portfolio' ? '↗' : '✳'}</span><p>${type === 'portfolio' ? '아직 공개된 포트폴리오가 없습니다.' : '아직 작성된 연구 기록이 없습니다.'}</p><span style="font-size:10px">새 기록이 등록되면 이곳에 표시됩니다.</span></div>`;
+    return;
+  }
+  container.classList.remove('empty-list');
+  container.innerHTML = sorted.map((item, index) => {
+    const title = escapeHtml(item.title || '제목 없음');
+    const body = escapeHtml(type === 'portfolio' ? (item.description || '') : (item.content || ''));
+    const link = safeWebUrl(item.link || '');
+    const linkHtml = link ? `<a class="archive-link" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">${type === 'portfolio' ? '프로젝트 열기' : '참고 링크'} <span aria-hidden="true">↗</span></a>` : '';
+    const date = escapeHtml(prettyDate(item.created_at));
+    const category = type === 'portfolio' ? 'PORTFOLIO' : 'RESEARCH NOTE';
+    return `<article class="archive-card ${viewMode === 'detail' ? 'detail-card' : ''}" data-record-id="${escapeHtml(item.id)}" style="animation-delay:${Math.min(index * 35, 245)}ms"><div class="archive-card-main"><div class="archive-card-top"><span class="archive-category">${category}</span><time class="archive-date">${date}</time></div><h2>${title}</h2><p class="archive-description">${body}</p></div><div class="archive-card-actions"><button class="expand-button" type="button" data-expand="${escapeHtml(item.id)}">내용 더 보기 ↓</button>${linkHtml}</div></article>`;
+  }).join('');
+  $$('[data-expand]', container).forEach(button => button.addEventListener('click', () => {
+    const card = button.closest('.archive-card');
+    const expanded = card.classList.toggle('expanded');
+    button.textContent = expanded ? '접기 ↑' : '내용 더 보기 ↓';
+  }));
+}
+
+async function loadData() {
+  if (!supabase) {
+    setStatus('loading', '데이터베이스 설정 필요');
+    renderHome(); renderArchive('portfolio'); renderArchive('research');
+    return;
+  }
+  try {
+    const [profileResult, portfolioResult, researchResult] = await Promise.all([
+      supabase.from('profiles').select('id,display_name,description,avatar_url,updated_at').eq('id', 1).maybeSingle(),
+      supabase.from('portfolios').select('id,title,description,link,created_at').order('created_at', { ascending: false }),
+      supabase.from('research_records').select('id,title,content,link,created_at').order('created_at', { ascending: false })
+    ]);
+    const firstError = profileResult.error || portfolioResult.error || researchResult.error;
+    if (firstError) throw firstError;
+    if (profileResult.data) state.profile = { ...state.profile, ...profileResult.data };
+    state.portfolios = portfolioResult.data || [];
+    state.research = researchResult.data || [];
+    setStatus('connected', '실시간 연결됨');
+    renderHome(); renderArchive('portfolio'); renderArchive('research');
+  } catch (error) {
+    console.error('Failed to load public data:', error);
+    setStatus('error', '데이터 연결 오류');
+    if (!$('#data-error-notice')) {
+      const notice = document.createElement('div');
+      notice.id = 'data-error-notice'; notice.className = 'setup-notice';
+      notice.textContent = '데이터베이스에서 정보를 불러오지 못했습니다. Supabase URL·공개 키와 SQL 설정을 확인해주세요.';
+      $('.page-view.active .page-title-row')?.after(notice);
+    }
+    renderHome(); renderArchive('portfolio'); renderArchive('research');
+  }
+}
+
+function connectRealtime() {
+  if (!supabase) return;
+  if (state.realtimeChannel) supabase.removeChannel(state.realtimeChannel);
+  state.realtimeChannel = supabase.channel('public-portfolio-live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => loadData())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'portfolios' }, () => loadData())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'research_records' }, () => loadData())
+    .subscribe(status => {
+      if (status === 'SUBSCRIBED') setStatus('connected', '실시간 연결됨');
+      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setStatus('error', '실시간 연결 오류');
+      else if (status === 'CLOSED') setStatus('loading', '실시간 연결 종료');
+    });
+}
+
+function wireInteractions() {
+  $('#menu-open').addEventListener('click', openDrawer);
+  $('#menu-close').addEventListener('click', closeDrawer);
+  drawerBackdrop.addEventListener('click', closeDrawer);
+  $('#brand-home').addEventListener('click', event => { event.preventDefault(); setPage('home'); });
+  $$('.nav-item[data-page]').forEach(button => button.addEventListener('click', () => setPage(button.dataset.page)));
+  $('#admin-nav').addEventListener('click', () => { closeDrawer(); openLogin(); });
+  $('#modal-close').addEventListener('click', closeModal);
+  modalBackdrop.addEventListener('click', event => { if (event.target === modalBackdrop) closeModal(); });
+  $$('[data-go]').forEach(button => button.addEventListener('click', () => setPage(button.dataset.go)));
+  $('#portfolio-sort').addEventListener('change', () => renderArchive('portfolio'));
+  $('#research-sort').addEventListener('change', () => renderArchive('research'));
+  $$('[data-view]').forEach(button => button.addEventListener('click', () => {
+    const type = button.closest('#portfolio-view') ? 'portfolio' : 'research';
+    state.view[type] = button.dataset.view;
+    renderArchive(type);
+  }));
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      if (!modalBackdrop.hidden) closeModal();
+      else if (drawer.classList.contains('open')) closeDrawer();
+    }
+  });
+}
+
+wireInteractions();
+renderHome();
+renderArchive('portfolio');
+renderArchive('research');
+if (isConfigured) {
+  loadData().then(connectRealtime);
+} else {
+  setStatus('loading', '데이터베이스 설정 필요');
+}
