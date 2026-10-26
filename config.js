@@ -3,8 +3,8 @@
  * service_role/secret 키와 관리자 비밀번호는 절대 이 파일에 넣지 마세요.
  */
 window.APP_CONFIG = {
-  supabaseUrl: "https://ooeccvckretosmrjmios.supabase.co",
-  supabasePublishableKey: "sb_publishable_HI6XX2i-MIfWTcC7aesTKg_EEl8o_BE",
+  supabaseUrl: "https://zddutdytkhnfjqdctkwy.supabase.co",
+  supabasePublishableKey: "sb_publishable_fYeiCA8tFG_mZ2tqgWwsgg_AEl5E5SV",
   huggingFaceUrl: "https://huggingface.co/JUNH0X",
   githubUrl: "https://github.com/JUNH0X"
 };
