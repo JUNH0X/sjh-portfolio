@@ -1,6 +1,7 @@
 import { isAdminSessionValid, checkSameOrigin, jsonResponse, supabaseFetch, validateWebUrl } from '../_utils.js';
 
 const MAX_IMAGE_SIZE = 1024 * 1024;
+const MAX_RECORD_IMAGE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_IMAGES = new Map([
   ['image/jpeg', 'jpg'],
   ['image/png', 'png'],
@@ -45,6 +46,31 @@ async function uploadAvatar(env, file) {
   return `${cfg.url}/storage/v1/object/public/profile-images/${filename}`;
 }
 
+async function uploadRecordImage(env, file) {
+  if (!(file instanceof File) || !file.size) return '';
+  if (file.size > MAX_RECORD_IMAGE_SIZE) throw new Error('첨부 사진은 5MB 이하여야 합니다.');
+  const extension = ALLOWED_IMAGES.get(file.type);
+  if (!extension) throw new Error('첨부 사진은 PNG, JPG, WebP, GIF 파일만 가능합니다.');
+  const cfg = { url: String(env.SUPABASE_URL).replace(/\/+$/, ''), key: String(env.SUPABASE_SERVICE_ROLE_KEY || '') };
+  const filename = `record-${crypto.randomUUID()}.${extension}`;
+  const response = await fetch(`${cfg.url}/storage/v1/object/record-images/${filename}`, {
+    method: 'POST',
+    headers: {
+      apikey: cfg.key,
+      Authorization: `Bearer ${cfg.key}`,
+      'Content-Type': file.type,
+      'x-upsert': 'false',
+      'Cache-Control': '3600'
+    },
+    body: file
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`첨부 사진 업로드 실패 (${response.status}). Supabase Storage의 record-images 설정을 확인해주세요. ${body.slice(0, 180)}`);
+  }
+  return `${cfg.url}/storage/v1/object/public/record-images/${filename}`;
+}
+
 export async function onRequestPost({ request, env }) {
   if (!checkSameOrigin(request)) return jsonResponse({ ok: false, error: '허용되지 않은 요청 출처입니다.' }, 403);
   if (!await isAdminSessionValid(request, env)) return jsonResponse({ ok: false, error: '관리자 인증이 필요하거나 만료되었습니다.' }, 401);
@@ -52,7 +78,7 @@ export async function onRequestPost({ request, env }) {
     return jsonResponse({ ok: false, error: '데이터베이스 서버 환경변수가 설정되지 않았습니다.' }, 503);
   }
   const declaredLength = Number(request.headers.get('Content-Length') || 0);
-  if (declaredLength > 2 * 1024 * 1024) return jsonResponse({ ok: false, error: '요청 크기가 너무 큽니다.' }, 413);
+  if (declaredLength > 6 * 1024 * 1024) return jsonResponse({ ok: false, error: '요청 크기가 너무 큽니다.' }, 413);
   let form;
   try { form = await request.formData(); } catch { return jsonResponse({ ok: false, error: '잘못된 폼 데이터입니다.' }, 400); }
   try {
@@ -77,10 +103,11 @@ export async function onRequestPost({ request, env }) {
     if (action === 'portfolio') {
       const title = checkText(field(form, 'title'), { label: '제목', max: 120 });
       const description = checkText(field(form, 'description'), { label: '설명', max: 5000 });
-      const link = validateWebUrl(field(form, 'link'));
+      const link = validateWebUrl(field(form, 'link'), true);
+      const photoUrl = await uploadRecordImage(env, form.get('photo'));
       const result = await supabaseFetch(env, '/rest/v1/portfolios', {
         method: 'POST', headers: { Prefer: 'return=representation' },
-        body: JSON.stringify({ title, description, link })
+        body: JSON.stringify({ title, description, link: link || null, photo_url: photoUrl || null })
       });
       return jsonResponse({ ok: true, item: Array.isArray(result.data) ? result.data[0] : null }, 201);
     }
@@ -89,9 +116,10 @@ export async function onRequestPost({ request, env }) {
       const title = checkText(field(form, 'title'), { label: '제목', max: 160 });
       const content = checkText(field(form, 'content'), { label: '내용', max: 15000 });
       const link = validateWebUrl(field(form, 'link'), true);
+      const photoUrl = await uploadRecordImage(env, form.get('photo'));
       const result = await supabaseFetch(env, '/rest/v1/research_records', {
         method: 'POST', headers: { Prefer: 'return=representation' },
-        body: JSON.stringify({ title, content, link: link || null })
+        body: JSON.stringify({ title, content, link: link || null, photo_url: photoUrl || null })
       });
       return jsonResponse({ ok: true, item: Array.isArray(result.data) ? result.data[0] : null }, 201);
     }
@@ -106,9 +134,11 @@ export async function onRequestPost({ request, env }) {
       const body = isPortfolio
         ? checkText(field(form, 'description'), { label: '설명', max: 5000 })
         : checkText(field(form, 'content'), { label: '내용', max: 15000 });
-      const link = validateWebUrl(field(form, 'link'), !isPortfolio);
+      const link = validateWebUrl(field(form, 'link'), true);
+      const photoUrl = await uploadRecordImage(env, form.get('photo'));
       const table = isPortfolio ? 'portfolios' : 'research_records';
       const updates = { title, link: link || null };
+      if (photoUrl) updates.photo_url = photoUrl;
       if (isPortfolio) updates.description = body;
       else updates.content = body;
       const result = await supabaseFetch(env, `/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, {
@@ -142,7 +172,7 @@ export async function onRequestPost({ request, env }) {
     return jsonResponse({ ok: false, error: '알 수 없는 관리자 작업입니다.' }, 400);
   } catch (error) {
     const message = error?.message || '저장에 실패했습니다.';
-    const status = /입력해주세요|자 이하여야|올바른 URL|프로필 사진은|파일만 업로드|링크는|사진을 선택|올바르지 않습니다|선택해주세요|최대 100개|찾지 못했습니다|읽을 수 없습니다/.test(message) ? 400 : 502;
+    const status = /입력해주세요|자 이하여야|올바른 URL|프로필 사진은|첨부 사진은|파일만 업로드|파일만 가능합니다|링크는|사진을 선택|올바르지 않습니다|선택해주세요|최대 100개|찾지 못했습니다|읽을 수 없습니다/.test(message) ? 400 : 502;
     return jsonResponse({ ok: false, error: message }, status);
   }
 }

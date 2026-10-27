@@ -13,7 +13,8 @@ create table if not exists public.portfolios (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   description text not null,
-  link text not null,
+  link text,
+  photo_url text,
   created_at timestamptz not null default now()
 );
 
@@ -22,8 +23,14 @@ create table if not exists public.research_records (
   title text not null,
   content text not null,
   link text,
+  photo_url text,
   created_at timestamptz not null default now()
 );
+
+-- 기존 데이터베이스에도 안전하게 반영: 링크는 선택사항이며 사진 URL 컬럼을 추가합니다.
+alter table public.portfolios add column if not exists photo_url text;
+alter table public.portfolios alter column link drop not null;
+alter table public.research_records add column if not exists photo_url text;
 
 insert into public.profiles (id, display_name, description)
 values (1, '신준호', '오픈소스 AI 모델을 연구하고 개조하며, 배운 내용을 기록하는 학생 개발자입니다.')
@@ -71,4 +78,12 @@ values ('profile-images', 'profile-images', true, 1048576, array['image/png','im
 on conflict (id) do update set
   public = true,
   file_size_limit = 1048576,
+  allowed_mime_types = array['image/png','image/jpeg','image/webp','image/gif'];
+
+-- 공개 포트폴리오/연구 기록 사진 버킷. 업로드는 관리자 서버 함수에서만 실행합니다.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('record-images', 'record-images', true, 5242880, array['image/png','image/jpeg','image/webp','image/gif'])
+on conflict (id) do update set
+  public = true,
+  file_size_limit = 5242880,
   allowed_mime_types = array['image/png','image/jpeg','image/webp','image/gif'];
