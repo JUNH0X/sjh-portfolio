@@ -283,50 +283,97 @@ function validateRecordPhoto(file, errorBox) {
   return true;
 }
 
-function setupRecordPhotoPreview(initialUrl = '') {
+function getRecordPhotoUrls(item) {
+  let urls = Array.isArray(item?.photo_urls) ? item.photo_urls : [];
+  if (!urls.length && typeof item?.photo_urls === 'string') {
+    try {
+      const parsed = JSON.parse(item.photo_urls);
+      if (Array.isArray(parsed)) urls = parsed;
+    } catch { /* legacy or malformed value; fall back to photo_url */ }
+  }
+  if (!urls.length && item?.photo_url) urls = [item.photo_url];
+  return [...new Set(urls.map(safeWebUrl).filter(Boolean))].slice(0, 10);
+}
+
+function setupRecordPhotoPreview(initialUrls = []) {
   const input = $('#record-photo-input');
   const preview = $('#record-photo-preview');
-  const image = $('#record-photo-preview-image');
   const caption = $('#record-photo-caption');
-  if (!input || !preview || !image || !caption) return;
+  if (!input || !preview || !caption) return { getFiles: () => [], getKeptUrls: () => [] };
 
-  const showImage = url => {
-    const temporaryImage = typeof url === 'string' && url.startsWith('data:image/');
-    if (url && (temporaryImage || safeWebUrl(url))) {
-      image.src = url;
-      preview.hidden = false;
-    } else {
-      image.removeAttribute('src');
-      preview.hidden = true;
-    }
-  };
+  const keptUrls = [...new Set((Array.isArray(initialUrls) ? initialUrls : [initialUrls]).map(safeWebUrl).filter(Boolean))].slice(0, 10);
+  const selectedFiles = [];
+  let nextFileId = 0;
 
-  showImage(initialUrl);
-  caption.textContent = initialUrl
-    ? '현재 등록된 사진입니다. 새 사진을 선택하면 교체됩니다.'
-    : '사진을 선택하면 미리보기가 표시됩니다.';
+  function render() {
+    const total = keptUrls.length + selectedFiles.length;
+    preview.innerHTML = [
+      ...keptUrls.map((url, index) => `
+        <div class="record-photo-tile">
+          <img src="${escapeHtml(url)}" alt="기존 첨부 사진 ${index + 1}" loading="lazy">
+          <button type="button" class="record-photo-remove" data-remove-existing="${index}" aria-label="기존 사진 ${index + 1} 삭제" title="사진 삭제">×</button>
+          <span class="record-photo-tile-label">기존 사진 ${index + 1}</span>
+        </div>`),
+      ...selectedFiles.map(file => `
+        <div class="record-photo-tile">
+          <img src="${escapeHtml(file.previewUrl)}" alt="${escapeHtml(file.name)} 미리보기">
+          <button type="button" class="record-photo-remove" data-remove-new="${file.id}" aria-label="${escapeHtml(file.name)} 삭제" title="사진 삭제">×</button>
+          <span class="record-photo-tile-label">${escapeHtml(file.name)}</span>
+        </div>`)
+    ].join('');
+    preview.hidden = total === 0;
+    caption.textContent = total
+      ? `${total} / 10장 · 기존 ${keptUrls.length}장, 새 사진 ${selectedFiles.length}장 · 사진의 × 버튼으로 삭제할 수 있습니다.`
+      : '사진은 여러 장 선택할 수 있습니다. PNG, JPG, WebP, GIF · 사진당 최대 5MB · 최대 10장';
 
+    $$('[data-remove-existing]', preview).forEach(button => button.addEventListener('click', () => {
+      const index = Number(button.dataset.removeExisting);
+      if (Number.isInteger(index) && index >= 0 && index < keptUrls.length) {
+        keptUrls.splice(index, 1);
+        render();
+      }
+    }));
+    $$('[data-remove-new]', preview).forEach(button => button.addEventListener('click', () => {
+      const id = Number(button.dataset.removeNew);
+      const index = selectedFiles.findIndex(file => file.id === id);
+      if (index >= 0) {
+        URL.revokeObjectURL(selectedFiles[index].previewUrl);
+        selectedFiles.splice(index, 1);
+        render();
+      }
+    }));
+  }
+
+  input.multiple = true;
+  input.name = 'photos';
   input.addEventListener('change', () => {
-    const file = input.files?.[0];
+    const incoming = [...(input.files || [])];
     const errorBox = $('#form-error');
-    if (!file) {
-      showImage(initialUrl);
-      caption.textContent = initialUrl
-        ? '현재 등록된 사진입니다. 새 사진을 선택하면 교체됩니다.'
-        : '사진을 선택하면 미리보기가 표시됩니다.';
-      return;
-    }
-    if (!validateRecordPhoto(file, errorBox)) {
+    if (!incoming.length) return;
+    if (keptUrls.length + selectedFiles.length + incoming.length > 10) {
+      showFormError(errorBox, '사진은 기록 하나당 최대 10장까지 첨부할 수 있습니다.');
       input.value = '';
-      showImage(initialUrl);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => showImage(String(reader.result || ''));
-    reader.readAsDataURL(file);
-    caption.textContent = `${file.name} · ${(file.size / 1024).toFixed(0)}KB`;
+    for (const file of incoming) {
+      if (!validateRecordPhoto(file, errorBox)) {
+        input.value = '';
+        return;
+      }
+    }
+    for (const file of incoming) {
+      selectedFiles.push({ id: nextFileId++, file, name: file.name, previewUrl: URL.createObjectURL(file) });
+    }
+    input.value = '';
     if (errorBox) errorBox.classList.remove('visible');
+    render();
   });
+
+  render();
+  return {
+    getFiles: () => selectedFiles.map(entry => entry.file),
+    getKeptUrls: () => [...keptUrls]
+  };
 }
 
 function openAdminPanel() {
@@ -529,12 +576,12 @@ function openPortfolioForm() {
         <div class="field"><label for="portfolio-title-input">제목<span class="required">*</span></label><input id="portfolio-title-input" name="title" maxlength="120" required placeholder="프로젝트 이름"></div>
         <div class="field"><label for="portfolio-description-input">설명<span class="required">*</span></label><textarea id="portfolio-description-input" name="description" maxlength="5000" required placeholder="무엇을 만들었고, 어떤 기술을 사용했는지 적어주세요."></textarea><p class="field-hint">최대 5,000자</p></div>
         <div class="field"><label for="portfolio-link-input">링크 <span class="field-hint" style="display:inline">(선택)</span></label><input id="portfolio-link-input" name="link" type="url" maxlength="500" placeholder="https://..." inputmode="url"></div>
-        <div class="field record-photo-field"><label for="record-photo-input">사진 <span class="field-hint" style="display:inline">(선택)</span></label><input id="record-photo-input" name="photo" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><p class="field-hint">PNG, JPG, WebP, GIF · 최대 5MB</p><div class="record-photo-preview" id="record-photo-preview" hidden><img id="record-photo-preview-image" alt="첨부 사진 미리보기"></div><p class="field-hint" id="record-photo-caption">사진을 선택하면 미리보기가 표시됩니다.</p></div>
+        <div class="field record-photo-field"><label for="record-photo-input">사진 <span class="field-hint" style="display:inline">(선택)</span></label><input id="record-photo-input" name="photos" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><p class="field-hint">PNG, JPG, WebP, GIF · 사진당 최대 5MB · 최대 10장</p><div class="record-photo-preview" id="record-photo-preview" hidden></div><p class="field-hint" id="record-photo-caption">사진은 여러 장 선택할 수 있습니다.</p></div>
         <p class="form-error" id="form-error" role="alert"></p>
         <button class="primary-button" type="submit">포트폴리오 올리기 <span aria-hidden="true">→</span></button>
       </form>`
   });
-  setupRecordPhotoPreview();
+  const photoPicker = setupRecordPhotoPreview();
   $('#portfolio-form').addEventListener('submit', async event => {
     event.preventDefault();
     const formNode = event.currentTarget;
@@ -542,16 +589,16 @@ function openPortfolioForm() {
     const title = $('#portfolio-title-input').value.trim();
     const description = $('#portfolio-description-input').value.trim();
     const link = $('#portfolio-link-input').value.trim();
-    const photo = $('#record-photo-input').files?.[0];
+    const photos = photoPicker.getFiles();
     if (!title || !description) return showFormError(errorBox, '제목과 설명을 모두 입력해주세요.');
     if (link && !safeWebUrl(link)) return showFormError(errorBox, '링크는 http:// 또는 https:// 주소로 입력해주세요.');
-    if (!validateRecordPhoto(photo, errorBox)) return;
+    if (!photos.every(photo => validateRecordPhoto(photo, errorBox))) return;
     const form = new FormData();
     form.set('action', 'portfolio');
     form.set('title', title);
     form.set('description', description);
     if (link) form.set('link', link);
-    if (photo && photo.size) form.set('photo', photo, photo.name);
+    photos.forEach(photo => form.append('photos', photo, photo.name));
     await submitAdminForm(formNode, form, errorBox, '포트폴리오가 등록되었습니다.', '포트폴리오 등록에 실패했습니다.');
   });
 }
@@ -567,12 +614,12 @@ function openResearchForm() {
         <div class="field"><label for="research-title-input">제목<span class="required">*</span></label><input id="research-title-input" name="title" maxlength="160" required placeholder="연구 주제 또는 실험 이름"></div>
         <div class="field"><label for="research-content-input">내용<span class="required">*</span></label><textarea id="research-content-input" name="content" maxlength="15000" required placeholder="목표, 과정, 결과, 배운 점 등을 기록해주세요." style="min-height:150px"></textarea><p class="field-hint">최대 15,000자</p></div>
         <div class="field"><label for="research-link-input">링크 <span class="field-hint" style="display:inline">(선택)</span></label><input id="research-link-input" name="link" type="url" maxlength="500" placeholder="https://..." inputmode="url"></div>
-        <div class="field record-photo-field"><label for="record-photo-input">사진 <span class="field-hint" style="display:inline">(선택)</span></label><input id="record-photo-input" name="photo" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><p class="field-hint">PNG, JPG, WebP, GIF · 최대 5MB</p><div class="record-photo-preview" id="record-photo-preview" hidden><img id="record-photo-preview-image" alt="첨부 사진 미리보기"></div><p class="field-hint" id="record-photo-caption">사진을 선택하면 미리보기가 표시됩니다.</p></div>
+        <div class="field record-photo-field"><label for="record-photo-input">사진 <span class="field-hint" style="display:inline">(선택)</span></label><input id="record-photo-input" name="photos" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><p class="field-hint">PNG, JPG, WebP, GIF · 사진당 최대 5MB · 최대 10장</p><div class="record-photo-preview" id="record-photo-preview" hidden></div><p class="field-hint" id="record-photo-caption">사진은 여러 장 선택할 수 있습니다.</p></div>
         <p class="form-error" id="form-error" role="alert"></p>
         <button class="primary-button" type="submit">연구 기록 쓰기 <span aria-hidden="true">→</span></button>
       </form>`
   });
-  setupRecordPhotoPreview();
+  const photoPicker = setupRecordPhotoPreview();
   $('#research-form').addEventListener('submit', async event => {
     event.preventDefault();
     const formNode = event.currentTarget;
@@ -580,16 +627,16 @@ function openResearchForm() {
     const title = $('#research-title-input').value.trim();
     const content = $('#research-content-input').value.trim();
     const link = $('#research-link-input').value.trim();
-    const photo = $('#record-photo-input').files?.[0];
+    const photos = photoPicker.getFiles();
     if (!title || !content) return showFormError(errorBox, '제목과 내용을 모두 입력해주세요.');
     if (link && !safeWebUrl(link)) return showFormError(errorBox, '링크는 http:// 또는 https:// 주소로 입력해주세요.');
-    if (!validateRecordPhoto(photo, errorBox)) return;
+    if (!photos.every(photo => validateRecordPhoto(photo, errorBox))) return;
     const form = new FormData();
     form.set('action', 'research');
     form.set('title', title);
     form.set('content', content);
     if (link) form.set('link', link);
-    if (photo && photo.size) form.set('photo', photo, photo.name);
+    photos.forEach(photo => form.append('photos', photo, photo.name));
     await submitAdminForm(formNode, form, errorBox, '연구 기록이 등록되었습니다.', '연구 기록 등록에 실패했습니다.');
   });
 }
@@ -612,12 +659,12 @@ function openEditForm(type, item) {
         <div class="field"><label for="edit-record-title">제목<span class="required">*</span></label><input id="edit-record-title" name="title" maxlength="${titleMax}" required value="${title}"></div>
         <div class="field"><label for="edit-record-body">${isPortfolio ? '설명' : '내용'}<span class="required">*</span></label><textarea id="edit-record-body" name="body" maxlength="${bodyMax}" required>${body}</textarea></div>
         <div class="field"><label for="edit-record-link">링크 <span class="field-hint" style="display:inline">(선택)</span></label><input id="edit-record-link" name="link" type="url" maxlength="500" value="${link}" placeholder="https://..."></div>
-        <div class="field record-photo-field"><label for="record-photo-input">사진 <span class="field-hint" style="display:inline">(선택)</span></label><input id="record-photo-input" name="photo" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><p class="field-hint">PNG, JPG, WebP, GIF · 최대 5MB</p><div class="record-photo-preview" id="record-photo-preview" hidden><img id="record-photo-preview-image" alt="첨부 사진 미리보기"></div><p class="field-hint" id="record-photo-caption">사진을 선택하면 미리보기가 표시됩니다.</p></div>
+        <div class="field record-photo-field"><label for="record-photo-input">사진 <span class="field-hint" style="display:inline">(선택)</span></label><input id="record-photo-input" name="photos" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><p class="field-hint">PNG, JPG, WebP, GIF · 사진당 최대 5MB · 최대 10장</p><div class="record-photo-preview" id="record-photo-preview" hidden></div><p class="field-hint" id="record-photo-caption">사진은 여러 장 선택할 수 있습니다.</p></div>
         <p class="form-error" id="form-error" role="alert"></p>
         <button class="primary-button" type="submit">저장 <span aria-hidden="true">→</span></button>
       </form>`
   });
-  setupRecordPhotoPreview(item.photo_url || '');
+  const photoPicker = setupRecordPhotoPreview(getRecordPhotoUrls(item));
   $('#edit-record-form').addEventListener('submit', async event => {
     event.preventDefault();
     const formNode = event.currentTarget;
@@ -625,17 +672,18 @@ function openEditForm(type, item) {
     const newTitle = $('#edit-record-title').value.trim();
     const newBody = $('#edit-record-body').value.trim();
     const newLink = $('#edit-record-link').value.trim();
-    const photo = $('#record-photo-input').files?.[0];
+    const photos = photoPicker.getFiles();
     if (!newTitle || !newBody) return showFormError(errorBox, '제목과 내용은 필수입니다.');
     if (newLink && !safeWebUrl(newLink)) return showFormError(errorBox, '링크는 http:// 또는 https:// 주소로 입력해주세요.');
-    if (!validateRecordPhoto(photo, errorBox)) return;
+    if (!photos.every(photo => validateRecordPhoto(photo, errorBox))) return;
     const form = new FormData();
     form.set('action', isPortfolio ? 'edit-portfolio' : 'edit-research');
     form.set('id', String(item.id));
     form.set('title', newTitle);
     if (isPortfolio) form.set('description', newBody); else form.set('content', newBody);
     if (newLink) form.set('link', newLink);
-    if (photo && photo.size) form.set('photo', photo, photo.name);
+    form.set('keep_photo_urls', JSON.stringify(photoPicker.getKeptUrls()));
+    photos.forEach(photo => form.append('photos', photo, photo.name));
     await submitAdminForm(formNode, form, errorBox, isPortfolio ? '포트폴리오가 수정되었습니다.' : '연구 기록이 수정되었습니다.', '수정에 실패했습니다.');
   });
 }
@@ -736,7 +784,8 @@ function renderHomeRecords(container, items, type) {
   container.innerHTML = items.map(item => {
     const title = escapeHtml(item.title || '제목 없음');
     const excerpt = escapeHtml((item.description || item.content || '').slice(0, 150));
-    const photoUrl = safeWebUrl(item.photo_url || '');
+    const photoUrls = getRecordPhotoUrls(item);
+    const photoUrl = photoUrls[0] || '';
     const photoHtml = photoUrl ? `<span class="home-record-photo"><img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(item.title || '첨부 이미지')}" loading="lazy"></span>` : '';
     return `<button class="home-record-item" data-open-record="${escapeHtml(item.id)}" data-record-type="${type}">${photoHtml}<span class="home-record-text"><span class="home-record-title">${title}</span><span class="home-record-excerpt">${excerpt}</span></span><span class="home-record-date">${escapeHtml(shortDate(item.created_at))}</span></button>`;
   }).join('');
@@ -777,8 +826,8 @@ function renderArchive(type) {
     const body = escapeHtml(type === 'portfolio' ? (item.description || '') : (item.content || ''));
     const link = safeWebUrl(item.link || '');
     const linkEmbedHtml = link ? getRecordLinkEmbedHtml(link, item.title || '', type) : '';
-    const photoUrl = safeWebUrl(item.photo_url || '');
-    const photoHtml = photoUrl ? `<img class="archive-record-image" src="${escapeHtml(photoUrl)}" alt="${escapeHtml(item.title || '첨부 이미지')}" loading="lazy">` : '';
+    const photoUrls = getRecordPhotoUrls(item);
+    const photoHtml = photoUrls.length ? `<div class="archive-record-gallery">${photoUrls.map((url, photoIndex) => `<a class="archive-record-image-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(item.title || '첨부 이미지')} 사진 ${photoIndex + 1} 새 탭에서 열기"><img class="archive-record-image" src="${escapeHtml(url)}" alt="${escapeHtml(item.title || '첨부 이미지')} 사진 ${photoIndex + 1}" loading="lazy"></a>`).join('')}</div>` : '';
     const date = escapeHtml(prettyDate(item.created_at));
     const category = type === 'portfolio' ? 'PORTFOLIO' : 'RESEARCH NOTE';
     return `<article class="archive-card ${viewMode === 'detail' ? 'detail-card' : ''}" data-record-id="${escapeHtml(item.id)}" style="animation-delay:${Math.min(index * 35, 245)}ms"><div class="archive-card-main"><div class="archive-card-top"><span class="archive-category">${category}</span><span class="archive-card-top-actions">${state.adminAuthenticated ? `<button class="archive-edit-button" type="button" data-edit-record="${escapeHtml(item.id)}" data-edit-type="${type}">수정</button>` : ''}<time class="archive-date">${date}</time></span></div><h2>${title}</h2><p class="archive-description">${body}</p>${photoHtml}${linkEmbedHtml}</div><div class="archive-card-actions"><button class="expand-button" type="button" data-expand="${escapeHtml(item.id)}">내용 더 보기 ↓</button></div></article>`;
@@ -810,8 +859,8 @@ async function loadData() {
   try {
     const [profileResult, portfolioResult, researchResult] = await Promise.all([
       supabase.from('profiles').select('id,display_name,description,avatar_url,updated_at').eq('id', 1).maybeSingle(),
-      supabase.from('portfolios').select('id,title,description,link,photo_url,created_at').order('created_at', { ascending: false }),
-      supabase.from('research_records').select('id,title,content,link,photo_url,created_at').order('created_at', { ascending: false })
+      supabase.from('portfolios').select('id,title,description,link,photo_url,photo_urls,created_at').order('created_at', { ascending: false }),
+      supabase.from('research_records').select('id,title,content,link,photo_url,photo_urls,created_at').order('created_at', { ascending: false })
     ]);
     const firstError = profileResult.error || portfolioResult.error || researchResult.error;
     if (firstError) throw firstError;

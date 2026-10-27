@@ -148,3 +148,24 @@
   .record-link-preview { gap: 10px; padding: 11px; }
   .record-link-preview-mark { flex-basis: 36px; width: 36px; height: 36px; border-radius: 10px; }
 }
+
+
+/* Responsive photo galleries for recent cards, archive cards and admin dialogs. */
+.home-record-item{min-width:0;overflow:hidden;align-items:center}
+.home-record-photo{display:block;flex:0 0 58px;width:58px;height:58px;max-width:58px;overflow:hidden;border-radius:10px;background:#f0f3ef;border:1px solid #e6ebe5}
+.home-record-photo img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:cover}
+.home-record-text{flex:1;min-width:0;overflow:hidden}
+.home-record-date{flex:0 0 auto}
+.archive-record-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr));gap:10px;margin-top:16px;max-width:100%;min-width:0}
+.archive-record-image-link{display:block;min-width:0;max-width:100%;overflow:hidden;border:1px solid #e5eae4;border-radius:12px;background:#f5f7f4;aspect-ratio:16/10}
+.archive-record-image{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:cover;transition:transform .2s}
+.archive-record-image-link:hover .archive-record-image{transform:scale(1.025)}
+.record-photo-preview{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px;margin-top:8px;max-width:100%;min-width:0}
+.record-photo-preview[hidden]{display:none}
+.record-photo-tile{position:relative;min-width:0;overflow:hidden;border:1px solid #e1e8e0;border-radius:12px;background:#f6f8f5}
+.record-photo-tile img{display:block;width:100%;height:105px;max-width:100%;object-fit:cover}
+.record-photo-tile-label{display:block;padding:6px 8px;font-size:9px;color:#677369;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.record-photo-remove{position:absolute;top:6px;right:6px;width:26px;height:26px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.7);border-radius:50%;background:rgba(30,45,36,.84);color:#fff;font-size:20px;line-height:1;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.record-photo-remove:hover{background:#a43e35}
+.record-photo-field input[type=file]{max-width:100%;font-size:11px}
+@media(max-width:760px){.home-record-photo{width:50px;height:50px;flex-basis:50px;max-width:50px}.archive-record-gallery{grid-template-columns:repeat(auto-fill,minmax(min(100%,130px),1fr));gap:8px}.record-photo-preview{grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}.record-photo-tile img{height:88px}.modal-body{max-height:calc(100vh - 150px);overflow:auto}}

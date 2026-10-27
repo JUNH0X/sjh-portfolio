@@ -15,6 +15,7 @@ create table if not exists public.portfolios (
   description text not null,
   link text,
   photo_url text,
+  photo_urls jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -24,13 +25,23 @@ create table if not exists public.research_records (
   content text not null,
   link text,
   photo_url text,
+  photo_urls jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 
 -- 기존 데이터베이스에도 안전하게 반영: 링크는 선택사항이며 사진 URL 컬럼을 추가합니다.
 alter table public.portfolios add column if not exists photo_url text;
+alter table public.portfolios add column if not exists photo_urls jsonb not null default '[]'::jsonb;
 alter table public.portfolios alter column link drop not null;
 alter table public.research_records add column if not exists photo_url text;
+alter table public.research_records add column if not exists photo_urls jsonb not null default '[]'::jsonb;
+
+-- Migrate existing single-photo records into the new multi-photo array.
+update public.portfolios set photo_urls = jsonb_build_array(photo_url)
+where photo_url is not null and photo_url <> '' and photo_urls = '[]'::jsonb;
+update public.research_records set photo_urls = jsonb_build_array(photo_url)
+where photo_url is not null and photo_url <> '' and photo_urls = '[]'::jsonb;
+
 
 insert into public.profiles (id, display_name, description)
 values (1, '신준호', '오픈소스 AI 모델을 연구하고 개조하며, 배운 내용을 기록하는 학생 개발자입니다.')
