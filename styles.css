@@ -406,3 +406,86 @@
   .archive-list.detail-view .archive-record-gallery { grid-template-columns: repeat(auto-fill, minmax(min(100%, 135px), 1fr)); gap: 8px; }
   .archive-list.detail-view .record-embed-frame { min-height: 170px; }
 }
+
+
+/* Full record detail popup opened from portfolio and research archive rows. */
+.modal.record-detail-modal {
+  width: min(880px, calc(100vw - 32px));
+  max-height: min(88vh, 900px);
+}
+.modal.record-detail-modal .modal-body {
+  max-height: calc(88vh - 104px);
+  overflow-y: auto;
+}
+.record-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.record-detail-description {
+  margin: 18px 0 20px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.record-detail-gallery {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr));
+  margin: 18px 0;
+}
+.record-detail-gallery .archive-record-image-link {
+  aspect-ratio: 4 / 3;
+}
+.record-detail-gallery .archive-record-image {
+  object-fit: contain;
+  background: #f5f7f4;
+}
+.modal.record-detail-modal .record-link-embed,
+.modal.record-detail-modal .record-link-preview {
+  margin-top: 18px;
+}
+.modal.record-detail-modal .record-embed-frame {
+  min-height: 240px;
+}
+.record-detail-footer {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+  color: #929c94;
+  font-size: 10px;
+}
+.archive-card[data-record-id] {
+  cursor: pointer;
+}
+.archive-card[data-record-id]:focus-visible {
+  outline: 3px solid #abc9b3;
+  outline-offset: 3px;
+}
+@media (max-width: 760px) {
+  .modal.record-detail-modal {
+    width: calc(100vw - 24px);
+    max-height: 92vh;
+  }
+  .modal.record-detail-modal .modal-body {
+    max-height: calc(92vh - 90px);
+  }
+  .record-detail-description {
+    font-size: 12px;
+    line-height: 1.9;
+  }
+  .record-detail-gallery {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 130px), 1fr));
+  }
+  .modal.record-detail-modal .record-embed-frame {
+    min-height: 175px;
+  }
+}

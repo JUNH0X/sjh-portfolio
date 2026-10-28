@@ -195,7 +195,9 @@ function closeDrawer() {
   document.body.style.overflow = modalBackdrop.hidden ? '' : 'hidden';
 }
 
-function openModal({ title, kicker = 'ADMIN ACCESS', content, kind = null }) {
+function openModal({ title, kicker = 'ADMIN ACCESS', content, kind = null, className = '' }) {
+  $('#modal').classList.remove('record-detail-modal');
+  if (className) $('#modal').classList.add(className);
   state.lastFocus = document.activeElement;
   state.modalKind = kind;
   modalTitle.textContent = title;
@@ -210,6 +212,7 @@ function openModal({ title, kicker = 'ADMIN ACCESS', content, kind = null }) {
 function closeModal() {
   modalBackdrop.hidden = true;
   modalBody.innerHTML = '';
+  $('#modal').classList.remove('record-detail-modal');
   state.modalKind = null;
   document.body.style.overflow = drawer.classList.contains('open') ? 'hidden' : '';
   if (state.lastFocus && typeof state.lastFocus.focus === 'function') state.lastFocus.focus();
@@ -862,6 +865,40 @@ function renderHomeRecords(container, items, type) {
   }));
 }
 
+
+function openRecordDetail(type, item) {
+  const isPortfolio = type === 'portfolio';
+  const title = item.title || '제목 없음';
+  const rawBody = String(isPortfolio ? (item.description || '') : (item.content || '')).trim();
+  const body = escapeHtml(rawBody);
+  const link = safeWebUrl(item.link || '');
+  const photoUrls = getRecordPhotoUrls(item);
+  const category = isPortfolio ? 'PORTFOLIO DETAIL' : 'RESEARCH NOTE DETAIL';
+  const photoHtml = photoUrls.length
+    ? `<div class="archive-record-gallery record-detail-gallery" aria-label="첨부 사진">${photoUrls.map((url, index) => `
+        <a class="archive-record-image-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" aria-label="첨부 사진 ${index + 1} 새 탭에서 열기">
+          <img class="archive-record-image" src="${escapeHtml(url)}" alt="${escapeHtml(title)} 사진 ${index + 1}" loading="lazy">
+        </a>`).join('')}</div>`
+    : '';
+  const linkHtml = link ? getRecordLinkEmbedHtml(link, title, type) : '';
+
+  openModal({
+    title,
+    kicker: category,
+    kind: 'record-detail',
+    className: 'record-detail-modal',
+    content: `
+      <div class="record-detail-meta">
+        <span class="archive-category">${isPortfolio ? 'PORTFOLIO' : 'RESEARCH NOTE'}</span>
+        <time class="archive-date">${escapeHtml(prettyDate(item.created_at))}</time>
+      </div>
+      <div class="record-detail-description">${body || '내용이 없습니다.'}</div>
+      ${photoHtml}
+      ${linkHtml}
+      <div class="record-detail-footer"><span>© 2026 신준호</span><span>${photoUrls.length ? `첨부 사진 ${photoUrls.length}장` : '상세 기록'}</span></div>`
+  });
+}
+
 function renderArchive(type) {
   const items = type === 'portfolio' ? state.portfolios : state.research;
   const container = $(`#${type}-list`);
@@ -914,7 +951,7 @@ function renderArchive(type) {
       ].filter(Boolean).join('');
 
       return `
-        <article class="archive-card archive-list-row" data-record-id="${escapeHtml(item.id)}" style="animation-delay:${Math.min(index * 25, 200)}ms">
+        <article class="archive-card archive-list-row" data-record-id="${escapeHtml(item.id)}" tabindex="0" aria-label="${title} 상세 정보 열기" style="animation-delay:${Math.min(index * 25, 200)}ms">
           <span class="archive-list-row-mark" aria-hidden="true">${type === 'portfolio' ? '↗' : '✳'}</span>
           <div class="archive-list-row-content">
             <div class="archive-card-top"><span class="archive-category">${category}</span><time class="archive-date">${date}</time></div>
@@ -935,7 +972,7 @@ function renderArchive(type) {
       : '';
 
     return `
-      <article class="archive-card detail-card" data-record-id="${escapeHtml(item.id)}" style="animation-delay:${Math.min(index * 35, 245)}ms">
+      <article class="archive-card detail-card" data-record-id="${escapeHtml(item.id)}" tabindex="0" aria-label="${title} 상세 정보 열기" style="animation-delay:${Math.min(index * 35, 245)}ms">
         <div class="archive-card-main">
           <div class="archive-card-top">
             <span class="archive-category">${category}</span>
@@ -948,6 +985,24 @@ function renderArchive(type) {
         </div>
       </article>`;
   }).join('');
+
+  // Clicking an archive row/card opens its full record in the shared modal.
+  // Keep buttons, links, and embedded media interactive without opening the modal.
+  container.onclick = event => {
+    if (event.target.closest('a, button, input, select, textarea, iframe')) return;
+    const card = event.target.closest('[data-record-id]');
+    if (!card || !container.contains(card)) return;
+    const item = items.find(record => String(record.id) === card.dataset.recordId);
+    if (item) openRecordDetail(type, item);
+  };
+  container.onkeydown = event => {
+    if (!['Enter', ' '].includes(event.key) || event.target.closest('a, button, input, select, textarea, iframe')) return;
+    const card = event.target.closest('[data-record-id]');
+    if (!card || event.target !== card || !container.contains(card)) return;
+    event.preventDefault();
+    const item = items.find(record => String(record.id) === card.dataset.recordId);
+    if (item) openRecordDetail(type, item);
+  };
 
   $$('[data-edit-record]', container).forEach(button => button.addEventListener('click', () => {
     const recordType = button.dataset.editType;
