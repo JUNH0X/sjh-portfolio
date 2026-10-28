@@ -307,7 +307,7 @@ function setupRecordPhotoPreview(initialUrls = []) {
 
   function render() {
     const total = keptUrls.length + selectedFiles.length;
-    preview.innerHTML = [
+    const tiles = [
       ...keptUrls.map((url, index) => `
         <div class="record-photo-tile">
           <img src="${escapeHtml(url)}" alt="기존 첨부 사진 ${index + 1}" loading="lazy">
@@ -320,11 +320,18 @@ function setupRecordPhotoPreview(initialUrls = []) {
           <button type="button" class="record-photo-remove" data-remove-new="${file.id}" aria-label="${escapeHtml(file.name)} 삭제" title="사진 삭제">×</button>
           <span class="record-photo-tile-label">${escapeHtml(file.name)}</span>
         </div>`)
-    ].join('');
-    preview.hidden = total === 0;
+    ];
+    if (total < 10) {
+      tiles.push(`<button type="button" class="record-photo-add" data-add-record-photo aria-label="사진 추가"><span class="record-photo-add-symbol" aria-hidden="true">+</span><span class="record-photo-add-label">사진 추가</span></button>`);
+    }
+    preview.innerHTML = tiles.join('');
+    // The add tile and thumbnails share one grid; the browser's native chooser stays visually hidden.
+    preview.hidden = false;
     caption.textContent = total
-      ? `${total} / 10장 · 기존 ${keptUrls.length}장, 새 사진 ${selectedFiles.length}장 · 사진의 × 버튼으로 삭제할 수 있습니다.`
-      : '사진은 여러 장 선택할 수 있습니다. PNG, JPG, WebP, GIF · 사진당 최대 5MB · 최대 10장';
+      ? `${total} / 10장 · 기존 ${keptUrls.length}장, 새 사진 ${selectedFiles.length}장 · ×로 삭제, +로 추가`
+      : '0 / 10장 · + 타일을 눌러 사진을 추가할 수 있습니다.';
+    const addButton = $('[data-add-record-photo]', preview);
+    if (addButton) addButton.addEventListener('click', () => input.click());
 
     $$('[data-remove-existing]', preview).forEach(button => button.addEventListener('click', () => {
       const index = Number(button.dataset.removeExisting);
@@ -576,7 +583,7 @@ function openPortfolioForm() {
         <div class="field"><label for="portfolio-title-input">제목<span class="required">*</span></label><input id="portfolio-title-input" name="title" maxlength="120" required placeholder="프로젝트 이름"></div>
         <div class="field"><label for="portfolio-description-input">설명<span class="required">*</span></label><textarea id="portfolio-description-input" name="description" maxlength="5000" required placeholder="무엇을 만들었고, 어떤 기술을 사용했는지 적어주세요."></textarea><p class="field-hint">최대 5,000자</p></div>
         <div class="field"><label for="portfolio-link-input">링크 <span class="field-hint" style="display:inline">(선택)</span></label><input id="portfolio-link-input" name="link" type="url" maxlength="500" placeholder="https://..." inputmode="url"></div>
-        <div class="field record-photo-field"><label for="record-photo-input">사진 <span class="field-hint" style="display:inline">(선택)</span></label><input id="record-photo-input" name="photos" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><p class="field-hint">PNG, JPG, WebP, GIF · 사진당 최대 5MB · 최대 10장</p><div class="record-photo-preview" id="record-photo-preview" hidden></div><p class="field-hint" id="record-photo-caption">사진은 여러 장 선택할 수 있습니다.</p></div>
+        <div class="field record-photo-field"><label>사진 <span class="field-hint" style="display:inline">(선택)</span></label><input id="record-photo-input" class="record-photo-input-hidden" name="photos" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple tabindex="-1" aria-hidden="true"><p class="field-hint">PNG, JPG, WebP, GIF · 사진당 최대 5MB · 최대 10장</p><div class="record-photo-preview" id="record-photo-preview"></div><p class="field-hint" id="record-photo-caption">+ 타일을 눌러 사진을 추가할 수 있습니다.</p></div>
         <p class="form-error" id="form-error" role="alert"></p>
         <button class="primary-button" type="submit">포트폴리오 올리기 <span aria-hidden="true">→</span></button>
       </form>`
@@ -614,7 +621,7 @@ function openResearchForm() {
         <div class="field"><label for="research-title-input">제목<span class="required">*</span></label><input id="research-title-input" name="title" maxlength="160" required placeholder="연구 주제 또는 실험 이름"></div>
         <div class="field"><label for="research-content-input">내용<span class="required">*</span></label><textarea id="research-content-input" name="content" maxlength="15000" required placeholder="목표, 과정, 결과, 배운 점 등을 기록해주세요." style="min-height:150px"></textarea><p class="field-hint">최대 15,000자</p></div>
         <div class="field"><label for="research-link-input">링크 <span class="field-hint" style="display:inline">(선택)</span></label><input id="research-link-input" name="link" type="url" maxlength="500" placeholder="https://..." inputmode="url"></div>
-        <div class="field record-photo-field"><label for="record-photo-input">사진 <span class="field-hint" style="display:inline">(선택)</span></label><input id="record-photo-input" name="photos" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><p class="field-hint">PNG, JPG, WebP, GIF · 사진당 최대 5MB · 최대 10장</p><div class="record-photo-preview" id="record-photo-preview" hidden></div><p class="field-hint" id="record-photo-caption">사진은 여러 장 선택할 수 있습니다.</p></div>
+        <div class="field record-photo-field"><label>사진 <span class="field-hint" style="display:inline">(선택)</span></label><input id="record-photo-input" class="record-photo-input-hidden" name="photos" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple tabindex="-1" aria-hidden="true"><p class="field-hint">PNG, JPG, WebP, GIF · 사진당 최대 5MB · 최대 10장</p><div class="record-photo-preview" id="record-photo-preview"></div><p class="field-hint" id="record-photo-caption">+ 타일을 눌러 사진을 추가할 수 있습니다.</p></div>
         <p class="form-error" id="form-error" role="alert"></p>
         <button class="primary-button" type="submit">연구 기록 쓰기 <span aria-hidden="true">→</span></button>
       </form>`
@@ -659,7 +666,7 @@ function openEditForm(type, item) {
         <div class="field"><label for="edit-record-title">제목<span class="required">*</span></label><input id="edit-record-title" name="title" maxlength="${titleMax}" required value="${title}"></div>
         <div class="field"><label for="edit-record-body">${isPortfolio ? '설명' : '내용'}<span class="required">*</span></label><textarea id="edit-record-body" name="body" maxlength="${bodyMax}" required>${body}</textarea></div>
         <div class="field"><label for="edit-record-link">링크 <span class="field-hint" style="display:inline">(선택)</span></label><input id="edit-record-link" name="link" type="url" maxlength="500" value="${link}" placeholder="https://..."></div>
-        <div class="field record-photo-field"><label for="record-photo-input">사진 <span class="field-hint" style="display:inline">(선택)</span></label><input id="record-photo-input" name="photos" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><p class="field-hint">PNG, JPG, WebP, GIF · 사진당 최대 5MB · 최대 10장</p><div class="record-photo-preview" id="record-photo-preview" hidden></div><p class="field-hint" id="record-photo-caption">사진은 여러 장 선택할 수 있습니다.</p></div>
+        <div class="field record-photo-field"><label>사진 <span class="field-hint" style="display:inline">(선택)</span></label><input id="record-photo-input" class="record-photo-input-hidden" name="photos" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple tabindex="-1" aria-hidden="true"><p class="field-hint">PNG, JPG, WebP, GIF · 사진당 최대 5MB · 최대 10장</p><div class="record-photo-preview" id="record-photo-preview"></div><p class="field-hint" id="record-photo-caption">+ 타일을 눌러 사진을 추가할 수 있습니다.</p></div>
         <p class="form-error" id="form-error" role="alert"></p>
         <button class="primary-button" type="submit">저장 <span aria-hidden="true">→</span></button>
       </form>`
@@ -762,8 +769,13 @@ function updateProfileCard() {
 
 function renderHome() {
   updateProfileCard();
-  const portfolios = [...state.portfolios].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 3);
-  const research = [...state.research].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 3);
+  // 홈에는 포트폴리오와 연구 기록 각각 가장 최근 항목 하나만 표시합니다.
+  const portfolios = [...state.portfolios]
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+    .slice(0, 1);
+  const research = [...state.research]
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+    .slice(0, 1);
   renderHomeRecords($('#home-portfolios'), portfolios, 'portfolio');
   renderHomeRecords($('#home-research'), research, 'research');
   const rawHfUrl = config.huggingFaceUrl || '';
@@ -781,19 +793,71 @@ function renderHomeRecords(container, items, type) {
       : '<div class="empty-state compact"><span class="empty-icon">✳</span><p>첫 번째 연구 기록을 기다리고 있어요.</p></div>';
     return;
   }
-  container.innerHTML = items.map(item => {
-    const title = escapeHtml(item.title || '제목 없음');
-    const excerpt = escapeHtml((item.description || item.content || '').slice(0, 150));
-    const photoUrls = getRecordPhotoUrls(item);
-    const photoUrl = photoUrls[0] || '';
-    const photoHtml = photoUrl ? `<span class="home-record-photo"><img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(item.title || '첨부 이미지')}" loading="lazy"></span>` : '';
-    return `<button class="home-record-item" data-open-record="${escapeHtml(item.id)}" data-record-type="${type}">${photoHtml}<span class="home-record-text"><span class="home-record-title">${title}</span><span class="home-record-excerpt">${excerpt}</span></span><span class="home-record-date">${escapeHtml(shortDate(item.created_at))}</span></button>`;
-  }).join('');
+
+  const item = items[0];
+  const title = escapeHtml(item.title || '제목 없음');
+  const rawExcerpt = (item.description || item.content || '').trim();
+  const excerpt = escapeHtml(rawExcerpt.length > 220 ? `${rawExcerpt.slice(0, 220)}…` : rawExcerpt);
+  const photoUrl = getRecordPhotoUrls(item)[0] || '';
+  const linkUrl = safeWebUrl(item.link || '');
+  const linkPreviewHtml = linkUrl
+    ? getRecordLinkEmbedHtml(linkUrl, item.title || '', type)
+    : '';
+  let mediaHtml = '';
+
+  // 사진과 링크가 모두 있으면 사진은 '보조' 칸, 링크 임베드는 '사진' 칸에 배치합니다.
+  if (photoUrl && linkPreviewHtml) {
+    mediaHtml = `
+      <div class="home-record-media home-record-media-dual" aria-label="첨부 미디어 미리보기">
+        <div class="home-record-media-slot">
+          <span class="home-record-media-label">보조</span>
+          <div class="home-record-photo-frame">
+            <img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(item.title || '첨부 사진')}" loading="lazy">
+          </div>
+        </div>
+        <div class="home-record-media-slot">
+          <span class="home-record-media-label">사진</span>
+          <div class="home-record-link-embed">${linkPreviewHtml}</div>
+        </div>
+      </div>`;
+  } else if (photoUrl) {
+    mediaHtml = `
+      <div class="home-record-media home-record-media-single" aria-label="첨부 사진 미리보기">
+        <div class="home-record-media-slot">
+          <span class="home-record-media-label">사진</span>
+          <div class="home-record-photo-frame">
+            <img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(item.title || '첨부 사진')}" loading="lazy">
+          </div>
+        </div>
+      </div>`;
+  } else if (linkPreviewHtml) {
+    mediaHtml = `
+      <div class="home-record-media home-record-media-single home-record-media-link-only" aria-label="링크 미리보기">
+        <div class="home-record-media-slot">
+          <span class="home-record-media-label">링크</span>
+          <div class="home-record-link-embed">${linkPreviewHtml}</div>
+        </div>
+      </div>`;
+  }
+
+  container.innerHTML = `
+    <article class="home-record-item">
+      <button class="home-record-main" type="button" data-open-record="${escapeHtml(item.id)}" data-record-type="${type}" aria-label="${title} 상세 보기">
+        <span class="home-record-title">${title}</span>
+        <span class="home-record-excerpt">${excerpt || '아직 설명이 없습니다.'}</span>
+        <span class="home-record-date">${escapeHtml(shortDate(item.created_at))}</span>
+      </button>
+      ${mediaHtml}
+    </article>`;
+
   $$('[data-open-record]', container).forEach(button => button.addEventListener('click', () => {
     setPage(type);
     window.setTimeout(() => {
       const target = $(`[data-record-id="${CSS.escape(button.dataset.openRecord)}"]`, $(`#${type}-list`));
-      if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); target.classList.add('expanded'); }
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.add('expanded');
+      }
     }, 80);
   }));
 }
@@ -810,46 +874,93 @@ function renderArchive(type) {
     const bDate = new Date(b.created_at || 0).getTime();
     return sortValue === 'oldest' ? aDate - bDate : bDate - aDate;
   });
+
   countEl.textContent = String(items.length).padStart(2, '0');
   summaryEl.textContent = `전체 ${items.length}개 ${type === 'portfolio' ? '프로젝트' : '연구 기록'}`;
   container.classList.toggle('detail-view', viewMode === 'detail');
   container.classList.toggle('list-view', viewMode === 'list');
-  $$(`#${type}-view [data-view]`).forEach(button => button.classList.toggle('active', button.dataset.view === viewMode));
+  $$(`#${type}-view [data-view]`).forEach(button => {
+    button.classList.toggle('active', button.dataset.view === viewMode);
+    button.setAttribute('aria-pressed', String(button.dataset.view === viewMode));
+  });
+
   if (!sorted.length) {
     container.classList.add('empty-list');
     container.innerHTML = `<div class="empty-state"><span class="empty-icon">${type === 'portfolio' ? '↗' : '✳'}</span><p>${type === 'portfolio' ? '아직 공개된 포트폴리오가 없습니다.' : '아직 작성된 연구 기록이 없습니다.'}</p><span style="font-size:10px">새 기록이 등록되면 이곳에 표시됩니다.</span></div>`;
     return;
   }
+
   container.classList.remove('empty-list');
   container.innerHTML = sorted.map((item, index) => {
     const title = escapeHtml(item.title || '제목 없음');
-    const body = escapeHtml(type === 'portfolio' ? (item.description || '') : (item.content || ''));
+    const rawBody = String(type === 'portfolio' ? (item.description || '') : (item.content || '')).trim();
+    const body = escapeHtml(rawBody);
     const link = safeWebUrl(item.link || '');
-    const linkEmbedHtml = link ? getRecordLinkEmbedHtml(link, item.title || '', type) : '';
     const photoUrls = getRecordPhotoUrls(item);
-    const photoHtml = photoUrls.length ? `<div class="archive-record-gallery">${photoUrls.map((url, photoIndex) => `<a class="archive-record-image-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(item.title || '첨부 이미지')} 사진 ${photoIndex + 1} 새 탭에서 열기"><img class="archive-record-image" src="${escapeHtml(url)}" alt="${escapeHtml(item.title || '첨부 이미지')} 사진 ${photoIndex + 1}" loading="lazy"></a>`).join('')}</div>` : '';
     const date = escapeHtml(prettyDate(item.created_at));
     const category = type === 'portfolio' ? 'PORTFOLIO' : 'RESEARCH NOTE';
-    return `<article class="archive-card ${viewMode === 'detail' ? 'detail-card' : ''}" data-record-id="${escapeHtml(item.id)}" style="animation-delay:${Math.min(index * 35, 245)}ms"><div class="archive-card-main"><div class="archive-card-top"><span class="archive-category">${category}</span><span class="archive-card-top-actions">${state.adminAuthenticated ? `<button class="archive-edit-button" type="button" data-edit-record="${escapeHtml(item.id)}" data-edit-type="${type}">수정</button>` : ''}<time class="archive-date">${date}</time></span></div><h2>${title}</h2><p class="archive-description">${body}</p>${photoHtml}${linkEmbedHtml}</div><div class="archive-card-actions"><button class="expand-button" type="button" data-expand="${escapeHtml(item.id)}">내용 더 보기 ↓</button></div></article>`;
+    const editButton = state.adminAuthenticated
+      ? `<button class="archive-edit-button" type="button" data-edit-record="${escapeHtml(item.id)}" data-edit-type="${type}">수정</button>`
+      : '';
+
+    // List view intentionally behaves like a compact file-list: metadata, name, short excerpt,
+    // and small indicators only. Heavy media previews belong to Detail view.
+    if (viewMode === 'list') {
+      const excerptText = rawBody.length > 155 ? `${rawBody.slice(0, 155)}…` : rawBody;
+      const excerpt = escapeHtml(excerptText || '설명이 없습니다.');
+      const mediaIndicators = [
+        photoUrls.length ? `<span class="archive-list-media-badge" title="첨부 사진 ${photoUrls.length}장">▧ 사진 ${photoUrls.length}${photoUrls.length > 1 ? '장' : ''}</span>` : '',
+        link ? '<span class="archive-list-media-badge" title="링크 첨부">↗ 링크</span>' : ''
+      ].filter(Boolean).join('');
+
+      return `
+        <article class="archive-card archive-list-row" data-record-id="${escapeHtml(item.id)}" style="animation-delay:${Math.min(index * 25, 200)}ms">
+          <span class="archive-list-row-mark" aria-hidden="true">${type === 'portfolio' ? '↗' : '✳'}</span>
+          <div class="archive-list-row-content">
+            <div class="archive-card-top"><span class="archive-category">${category}</span><time class="archive-date">${date}</time></div>
+            <h2>${title}</h2>
+            <p class="archive-list-excerpt">${excerpt}</p>
+          </div>
+          <div class="archive-list-row-side">${mediaIndicators}${editButton}</div>
+        </article>`;
+    }
+
+    // Detail view shows the complete text, every attached photo, and the full link/embed preview.
+    const linkEmbedHtml = link ? getRecordLinkEmbedHtml(link, item.title || '', type) : '';
+    const photoHtml = photoUrls.length
+      ? `<div class="archive-record-gallery">${photoUrls.map((url, photoIndex) => `
+          <a class="archive-record-image-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(item.title || '첨부 이미지')} 사진 ${photoIndex + 1} 새 탭에서 열기">
+            <img class="archive-record-image" src="${escapeHtml(url)}" alt="${escapeHtml(item.title || '첨부 이미지')} 사진 ${photoIndex + 1}" loading="lazy">
+          </a>`).join('')}</div>`
+      : '';
+
+    return `
+      <article class="archive-card detail-card" data-record-id="${escapeHtml(item.id)}" style="animation-delay:${Math.min(index * 35, 245)}ms">
+        <div class="archive-card-main">
+          <div class="archive-card-top">
+            <span class="archive-category">${category}</span>
+            <span class="archive-card-top-actions">${editButton}<time class="archive-date">${date}</time></span>
+          </div>
+          <h2>${title}</h2>
+          <p class="archive-description">${body || '내용이 없습니다.'}</p>
+          ${photoHtml}
+          ${linkEmbedHtml}
+        </div>
+      </article>`;
   }).join('');
-  $$('[data-expand]', container).forEach(button => button.addEventListener('click', () => {
-    const card = button.closest('.archive-card');
-    const expanded = card.classList.toggle('expanded');
-    button.textContent = expanded ? '접기 ↑' : '내용 더 보기 ↓';
-  }));
+
   $$('[data-edit-record]', container).forEach(button => button.addEventListener('click', () => {
-    const type = button.dataset.editType;
-    const records = type === 'portfolio' ? state.portfolios : state.research;
+    const recordType = button.dataset.editType;
+    const records = recordType === 'portfolio' ? state.portfolios : state.research;
     const item = records.find(record => String(record.id) === button.dataset.editRecord);
     if (!item) return toast('수정할 기록을 찾지 못했습니다. 새로고침 후 다시 시도해주세요.', 'error');
     requestReauthentication({
       title: '수정 전 오너 인증',
       description: '기록을 수정하려면 오너 비밀번호를 입력해주세요.',
-      onSuccess: () => openEditForm(type, item)
+      onSuccess: () => openEditForm(recordType, item)
     });
   }));
 }
-
 async function loadData() {
   if (!supabase) {
     setStatus('loading', '데이터베이스 설정 필요');
